@@ -369,7 +369,24 @@ export const visitorProcedures = {
 // ============================================
 export const noticeProcedures = {
   list: os.handler(async () => {
-    return db.select().from(schema.notices).orderBy(desc(schema.notices.id))
+    return db
+      .select({
+        id: schema.notices.id,
+        societyId: schema.notices.societyId,
+        title: schema.notices.title,
+        content: schema.notices.content,
+        postedBy: schema.notices.postedBy,
+        category: schema.notices.category,
+        priority: schema.notices.priority,
+        targetAudience: schema.notices.targetAudience,
+        targetTowers: schema.notices.targetTowers,
+        isPinned: schema.notices.isPinned,
+        isActive: schema.notices.isActive,
+        createdAt: schema.notices.createdAt,
+        commentCount: sql<number>`(SELECT COUNT(*) FROM ${schema.noticeComments} WHERE ${schema.noticeComments.noticeId} = notices.id)`.mapWith(Number),
+      })
+      .from(schema.notices)
+      .orderBy(desc(schema.notices.id))
   }),
 
   create: os
@@ -378,7 +395,9 @@ export const noticeProcedures = {
       title: z.string().min(1),
       content: z.string().min(1),
       postedBy: z.number(),
-      priority: z.enum(['low', 'medium', 'high']),
+      category: z.enum(['general', 'holiday', 'maintenance', 'event', 'security', 'rule']).default('general'),
+      priority: z.enum(['low', 'medium', 'high']).default('medium'),
+      targetAudience: z.enum(['all', 'owners', 'tenants', 'committee', 'specific_tower']).default('all'),
     }))
     .handler(async ({ input }) => {
       const [result] = await db.insert(schema.notices).values({ ...input, isPinned: false, isActive: true })
@@ -397,6 +416,44 @@ export const noticeProcedures = {
     .input(z.object({ id: z.number() }))
     .handler(async ({ input }) => {
       await db.delete(schema.notices).where(eq(schema.notices.id, input.id))
+      return { success: true }
+    }),
+
+  // Comments on a notice
+  listComments: os
+    .input(z.object({ noticeId: z.number() }))
+    .handler(async ({ input }) => {
+      return db
+        .select({
+          id: schema.noticeComments.id,
+          noticeId: schema.noticeComments.noticeId,
+          comment: schema.noticeComments.comment,
+          createdAt: schema.noticeComments.createdAt,
+          userId: schema.noticeComments.userId,
+          userName: sql<string>`CONCAT(${schema.users.firstName}, ' ', ${schema.users.lastName})`,
+          userRole: schema.users.role,
+        })
+        .from(schema.noticeComments)
+        .leftJoin(schema.users, eq(schema.noticeComments.userId, schema.users.id))
+        .where(eq(schema.noticeComments.noticeId, input.noticeId))
+        .orderBy(schema.noticeComments.id)
+    }),
+
+  addComment: os
+    .input(z.object({
+      noticeId: z.number(),
+      userId: z.number(),
+      comment: z.string().min(1),
+    }))
+    .handler(async ({ input }) => {
+      const [result] = await db.insert(schema.noticeComments).values(input)
+      return { id: Number(result.insertId), ...input }
+    }),
+
+  deleteComment: os
+    .input(z.object({ id: z.number() }))
+    .handler(async ({ input }) => {
+      await db.delete(schema.noticeComments).where(eq(schema.noticeComments.id, input.id))
       return { success: true }
     }),
 }

@@ -1,31 +1,54 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Loader2, Megaphone, Pin } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { orpc } from '@/server/client'
+import { useCurrentUser } from '@/hooks/auth'
 import { NoticesHeader } from './components/notices-header'
 import { NoticesSearch } from './components/notices-search'
 import { NoticeCard } from './components/notice-card'
 import { NoticeCreateDialog, NoticeEditDialog } from './components/notice-dialogs'
 import { NoticeDeleteDialog } from './components/notice-delete-dialog'
-import type { Notice, NoticeFormData } from './types'
+import { NoticeCommentsDialog } from './components/notice-comments-dialog'
+import type { Notice, NoticeCategory, NoticeFormData } from './types'
 
 const emptyForm: NoticeFormData = {
   title: '',
   content: '',
   postedBy: '',
+  category: 'general',
   priority: 'medium',
+  targetAudience: 'all',
 }
+
+const categoryFilters: { value: NoticeCategory | 'all'; label: string }[] = [
+  { value: 'all', label: 'All Categories' },
+  { value: 'general', label: 'General' },
+  { value: 'holiday', label: 'Holiday' },
+  { value: 'maintenance', label: 'Maintenance' },
+  { value: 'event', label: 'Event' },
+  { value: 'security', label: 'Security' },
+  { value: 'rule', label: 'Rule' },
+]
 
 export function NoticesPage() {
   // State
   const [notices, setNotices] = useState<Notice[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<NoticeCategory | 'all'>('all')
 
   // Dialog states
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [commentsDialogOpen, setCommentsDialogOpen] = useState(false)
   const [selectedNotice, setSelectedNotice] = useState<Notice | null>(null)
 
   // Form state
@@ -33,11 +56,13 @@ export function NoticesPage() {
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [submitting, setSubmitting] = useState(false)
 
+  const { data: currentUser } = useCurrentUser()
+
   const updateForm = (updates: Partial<NoticeFormData>) =>
     setFormData((prev) => ({ ...prev, ...updates }))
 
   // Fetch notices
-  const fetchNotices = async () => {
+  const loadNotices = async () => {
     try {
       const data = await orpc.notices.list({})
       setNotices(data || [])
@@ -49,14 +74,19 @@ export function NoticesPage() {
   }
 
   useEffect(() => {
-    fetchNotices()
+    loadNotices()
   }, [])
 
   // Filtered notices (pinned first)
-  const filtered = notices.filter(
-    (n) =>
-      n.title.toLowerCase().includes(search.toLowerCase()) ||
-      n.content.toLowerCase().includes(search.toLowerCase())
+  const filtered = useMemo(
+    () =>
+      notices.filter(
+        (n) =>
+          (categoryFilter === 'all' || n.category === categoryFilter) &&
+          (n.title.toLowerCase().includes(search.toLowerCase()) ||
+            n.content.toLowerCase().includes(search.toLowerCase()))
+      ),
+    [notices, search, categoryFilter]
   )
   const filteredPinned = filtered.filter((n) => n.isPinned)
   const filteredOther = filtered.filter((n) => !n.isPinned)
@@ -83,7 +113,9 @@ export function NoticesPage() {
       title: notice.title,
       content: notice.content,
       postedBy: notice.postedBy?.toString() || '',
+      category: notice.category || 'general',
       priority: notice.priority || 'medium',
+      targetAudience: notice.targetAudience || 'all',
     })
     setFormErrors({})
     setEditDialogOpen(true)
@@ -95,6 +127,12 @@ export function NoticesPage() {
     setDeleteDialogOpen(true)
   }
 
+  // Open comments dialog
+  const handleOpenComments = (notice: Notice) => {
+    setSelectedNotice(notice)
+    setCommentsDialogOpen(true)
+  }
+
   // Submit create
   const handleCreateSubmit = async () => {
     if (!validateForm()) return
@@ -104,12 +142,14 @@ export function NoticesPage() {
         societyId: 1,
         title: formData.title,
         content: formData.content,
-        postedBy: formData.postedBy ? Number(formData.postedBy) : 1,
-        priority: formData.priority as any,
+        postedBy: formData.postedBy ? Number(formData.postedBy) : (currentUser?.id ?? 1),
+        category: formData.category,
+        priority: formData.priority as 'low' | 'medium' | 'high',
+        targetAudience: formData.targetAudience,
       })
       setCreateDialogOpen(false)
       resetForm()
-      fetchNotices()
+      loadNotices()
     } catch (error) {
       console.error('Failed to create notice:', error)
     } finally {
@@ -127,11 +167,13 @@ export function NoticesPage() {
         data: {
           title: formData.title,
           content: formData.content,
+          category: formData.category,
           priority: formData.priority,
+          targetAudience: formData.targetAudience,
         },
       })
       setEditDialogOpen(false)
-      fetchNotices()
+      loadNotices()
     } catch (error) {
       console.error('Failed to update notice:', error)
     } finally {
@@ -146,7 +188,7 @@ export function NoticesPage() {
     try {
       await orpc.notices.delete({ id: selectedNotice.id })
       setDeleteDialogOpen(false)
-      fetchNotices()
+      loadNotices()
     } catch (error) {
       console.error('Failed to delete notice:', error)
     } finally {
@@ -161,7 +203,7 @@ export function NoticesPage() {
         id: notice.id,
         data: { isPinned: !notice.isPinned },
       })
-      fetchNotices()
+      loadNotices()
     } catch (error) {
       console.error('Failed to toggle pin:', error)
     }
@@ -178,8 +220,29 @@ export function NoticesPage() {
         }}
       />
 
-      {/* Search */}
-      <NoticesSearch value={search} onChange={setSearch} />
+      {/* Search + category filter */}
+      <div className="flex flex-col gap-4 sm:flex-row">
+        <div className="flex-1">
+          <NoticesSearch value={search} onChange={setSearch} />
+        </div>
+        <div className="sm:w-52">
+          <Select
+            value={categoryFilter}
+            onValueChange={(val) => setCategoryFilter(val as NoticeCategory | 'all')}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {categoryFilters.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-12">
@@ -201,6 +264,7 @@ export function NoticesPage() {
                   onEdit={handleEdit}
                   onDelete={handleDeleteClick}
                   onTogglePin={handleTogglePin}
+                  onOpenComments={handleOpenComments}
                 />
               ))}
             </div>
@@ -226,6 +290,7 @@ export function NoticesPage() {
                   onEdit={handleEdit}
                   onDelete={handleDeleteClick}
                   onTogglePin={handleTogglePin}
+                  onOpenComments={handleOpenComments}
                 />
               ))
             )}
@@ -258,6 +323,12 @@ export function NoticesPage() {
         notice={selectedNotice}
         onSubmit={handleDeleteSubmit}
         submitting={submitting}
+      />
+      <NoticeCommentsDialog
+        open={commentsDialogOpen}
+        onOpenChange={setCommentsDialogOpen}
+        notice={selectedNotice}
+        onCommentsChanged={loadNotices}
       />
     </div>
   )

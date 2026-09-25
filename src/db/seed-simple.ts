@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 
 async function seed() {
   const conn = await mysql.createConnection({
-    host: 'localhost', port: 3307, user: 'root', password: 'Samir@007', database: 'society_erp'
+    host: 'localhost', port: 3307, user: 'root', password: 'sneha', database: 'society_erp'
   })
 
   console.log('🌱 Seeding database...\n')
@@ -98,18 +98,41 @@ async function seed() {
   const [noRows] = await conn.execute('SELECT COUNT(*) as c FROM notices')
   if (noRows[0].c === 0) {
     const notices = [
-      ['Annual General Meeting - 25th August', 'AGM will be held on 25th August at 6 PM in community hall. All members are requested to attend.', 1, 'high', 1],
-      ['Water Supply Disruption Notice', 'Water supply will be disrupted on 22nd August from 10 AM to 4 PM due to pipeline maintenance.', 1, 'medium', 0],
-      ['New Security Protocol', 'Starting 1st September, all visitors must be pre-registered. Walk-in visitors need ID proof.', 1, 'high', 0],
-      ['Diwali Celebration Planning', 'We are planning a grand Diwali celebration. Interested members please contact the committee.', 1, 'medium', 0],
+      ['Annual General Meeting - 25th August', 'AGM will be held on 25th August at 6 PM in community hall. All members are requested to attend.', 1, 'event', 'high', 'all', 1],
+      ['Water Supply Disruption Notice', 'Water supply will be disrupted on 22nd August from 10 AM to 4 PM due to pipeline maintenance.', 1, 'maintenance', 'medium', 'all', 0],
+      ['Independence Day Holiday', 'The society office will remain closed on 15th August for Independence Day. Emergency maintenance will be available on call.', 1, 'holiday', 'medium', 'all', 0],
+      ['New Security Protocol', 'Starting 1st September, all visitors must be pre-registered. Walk-in visitors need ID proof.', 1, 'security', 'high', 'all', 0],
+      ['Lift Maintenance - A Wing', 'Lift in A Wing will be under maintenance on 20th August from 9 AM to 1 PM. Please use Staircase B.', 1, 'maintenance', 'high', 'specific_tower', 0],
+      ['Revised Parking Rules', 'As per committee decision, visitor parking is limited to 4 hours. Repeated violations will attract fines.', 1, 'rule', 'medium', 'owners', 0],
+      ['Committee Meeting Minutes', 'Draft minutes of the July committee meeting are available at the society office. Suggestions welcome.', 1, 'general', 'low', 'committee', 0],
     ]
-    for (const [t, c, uid, pri, pin] of notices) {
+    for (const [t, c, uid, cat, pri, aud, pin] of notices) {
       await conn.execute(
-        'INSERT INTO notices (society_id, title, content, posted_by, priority, is_pinned, is_active) VALUES (?,?,?,?,?,?,?)',
-        [1, t, c, uid, pri, pin, 1]
+        'INSERT INTO notices (society_id, title, content, posted_by, category, priority, target_audience, is_pinned, is_active) VALUES (?,?,?,?,?,?,?,?,?)',
+        [1, t, c, uid, cat, pri, aud, pin, 1]
       )
     }
-    console.log('✅ Notices: 4 created')
+    console.log('✅ Notices: 7 created')
+
+    // Notice comments (requires users table to have rows)
+    const [users] = await conn.execute('SELECT id FROM users ORDER BY id LIMIT 3')
+    if (users.length > 0) {
+      const [noticeRows] = await conn.execute('SELECT id FROM notices ORDER BY id LIMIT 3')
+      const comments = [
+        ['Noted, thank you for the update.', 0, 0],
+        ['Will the water supply be restored earlier if work finishes sooner?', 1, 0],
+        ['Looking forward to the celebration planning!', 2, 2],
+      ]
+      for (const [text, nIdx, uIdx] of comments) {
+        if (noticeRows[nIdx] && users[uIdx]) {
+          await conn.execute(
+            'INSERT INTO notice_comments (notice_id, user_id, comment) VALUES (?,?,?)',
+            [noticeRows[nIdx].id, users[uIdx].id, text]
+          )
+        }
+      }
+      console.log('✅ Notice Comments: 3 created')
+    }
   } else {
     console.log('⏭️  Notices: already exist')
   }

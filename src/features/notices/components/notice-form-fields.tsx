@@ -8,7 +8,24 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { MemberPicker } from '@/components/member-picker'
-import type { NoticeFormData } from '../types'
+import type { NoticeCategory, NoticeFormData, NoticeTargetAudience } from '../types'
+
+const categoryOptions: { value: NoticeCategory; label: string }[] = [
+  { value: 'general', label: 'General' },
+  { value: 'holiday', label: 'Holiday' },
+  { value: 'maintenance', label: 'Maintenance' },
+  { value: 'event', label: 'Event' },
+  { value: 'security', label: 'Security' },
+  { value: 'rule', label: 'Rule' },
+]
+
+const audienceOptions: { value: NoticeTargetAudience; label: string }[] = [
+  { value: 'all', label: 'Everyone' },
+  { value: 'owners', label: 'Owners' },
+  { value: 'tenants', label: 'Tenants' },
+  { value: 'committee', label: 'Committee' },
+  { value: 'specific_tower', label: 'Specific Tower' },
+]
 
 interface NoticeFormFieldsProps {
   formData: NoticeFormData
@@ -43,18 +60,59 @@ export function NoticeFormFields({ formData, formErrors, onChange }: NoticeFormF
           <p className="text-xs text-destructive">{formErrors.content}</p>
         )}
       </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>Category</Label>
+          <Select
+            value={formData.category}
+            onValueChange={(val) => onChange({ category: val as NoticeCategory })}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {categoryOptions.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Priority</Label>
+          <Select value={formData.priority} onValueChange={(val) => onChange({ priority: val })}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
       <div className="space-y-2">
-        <Label>Priority</Label>
-        <Select value={formData.priority} onValueChange={(val) => onChange({ priority: val })}>
+        <Label>Target Audience</Label>
+        <Select
+          value={formData.targetAudience}
+          onValueChange={(val) => onChange({ targetAudience: val as NoticeTargetAudience })}
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="low">Low</SelectItem>
-            <SelectItem value="medium">Medium</SelectItem>
-            <SelectItem value="high">High</SelectItem>
+            {audienceOptions.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
+        <p className="text-xs text-muted-foreground">
+          Choose who this notice is visible to
+        </p>
       </div>
       <MemberPicker
         value={formData.postedBy}

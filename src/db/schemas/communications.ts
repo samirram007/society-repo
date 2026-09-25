@@ -21,6 +21,7 @@ export const notices = mysqlTable('notices', {
   title: varchar('title', { length: 255 }).notNull(),
   content: text('content').notNull(),
   postedBy: int('posted_by').notNull().references(() => users.id),
+  category: mysqlEnum('category', ['general', 'holiday', 'maintenance', 'event', 'security', 'rule']).default('general'),
   priority: mysqlEnum('priority', ['low', 'medium', 'high']).default('medium'),
   targetAudience: mysqlEnum('target_audience', ['all', 'owners', 'tenants', 'committee', 'specific_tower']).default('all'),
   targetTowers: text('target_towers'), // JSON array of tower IDs
@@ -32,6 +33,20 @@ export const notices = mysqlTable('notices', {
 }, (table) => [
   index('notices_society_id_active_idx').on(table.societyId, table.isActive),
   index('notices_posted_by_idx').on(table.postedBy),
+])
+
+// ============================================
+// NOTICE COMMENTS
+// ============================================
+export const noticeComments = mysqlTable('notice_comments', {
+  id: int('id').primaryKey().autoincrement(),
+  noticeId: int('notice_id').notNull().references(() => notices.id, { onDelete: 'cascade' }),
+  userId: int('user_id').notNull().references(() => users.id),
+  comment: text('comment').notNull(),
+  createdAt: datetime('created_at').$defaultFn(() => new Date()),
+}, (table) => [
+  index('notice_comments_notice_id_idx').on(table.noticeId),
+  index('notice_comments_user_id_idx').on(table.userId),
 ])
 
 // ============================================
