@@ -32,13 +32,13 @@ export function NoticeCreateDialog({
 }: NoticeDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[620px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Post Notice</DialogTitle>
           <DialogDescription>Create a new notice for society members</DialogDescription>
         </DialogHeader>
         <NoticeFormFields formData={formData} formErrors={formErrors} onChange={onChange} />
-        <DialogFooter>
+        <DialogFooter className="sticky bottom-0 bg-background pt-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={onSubmit}
@@ -64,13 +64,13 @@ export function NoticeEditDialog({
 }: NoticeDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[620px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Notice</DialogTitle>
           <DialogDescription>Update notice details</DialogDescription>
         </DialogHeader>
         <NoticeFormFields formData={formData} formErrors={formErrors} onChange={onChange} />
-        <DialogFooter>
+        <DialogFooter className="sticky bottom-0 bg-background pt-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={onSubmit}

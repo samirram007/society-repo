@@ -24,6 +24,8 @@ export const notices = mysqlTable('notices', {
   category: mysqlEnum('category', ['general', 'holiday', 'maintenance', 'event', 'security', 'rule']).default('general'),
   priority: mysqlEnum('priority', ['low', 'medium', 'high']).default('medium'),
   targetAudience: mysqlEnum('target_audience', ['all', 'owners', 'tenants', 'committee', 'specific_tower']).default('all'),
+  /** Public notices can be shared outside the portal; private ones cannot */
+  visibility: mysqlEnum('visibility', ['private', 'public']).default('private'),
   targetTowers: text('target_towers'), // JSON array of tower IDs
   targetFlats: text('target_flats'), // JSON array of flat IDs
   isPinned: boolean('is_pinned').default(false),
@@ -33,6 +35,43 @@ export const notices = mysqlTable('notices', {
 }, (table) => [
   index('notices_society_id_active_idx').on(table.societyId, table.isActive),
   index('notices_posted_by_idx').on(table.postedBy),
+])
+
+// ============================================
+// NOTICE VIEWS ("seen by")
+// One row per user per notice, first view timestamp + count
+// ============================================
+export const noticeViews = mysqlTable('notice_views', {
+  id: int('id').primaryKey().autoincrement(),
+  noticeId: int('notice_id').notNull().references(() => notices.id, { onDelete: 'cascade' }),
+  userId: int('user_id').notNull().references(() => users.id),
+  viewCount: int('view_count').default(1),
+  firstViewedAt: datetime('first_viewed_at').$defaultFn(() => new Date()),
+  lastViewedAt: datetime('last_viewed_at').$defaultFn(() => new Date()),
+}, (table) => [
+  index('notice_views_notice_id_idx').on(table.noticeId),
+  index('notice_views_user_id_idx').on(table.userId),
+])
+
+// ============================================
+// NOTICE REACTIONS
+// One reaction per user per notice (like/love/celebrate/insightful/thanks)
+// ============================================
+export const noticeReactions = mysqlTable('notice_reactions', {
+  id: int('id').primaryKey().autoincrement(),
+  noticeId: int('notice_id').notNull().references(() => notices.id, { onDelete: 'cascade' }),
+  userId: int('user_id').notNull().references(() => users.id),
+  reactionType: mysqlEnum('reaction_type', [
+    'like',
+    'love',
+    'celebrate',
+    'insightful',
+    'thanks',
+  ]).notNull(),
+  createdAt: datetime('created_at').$defaultFn(() => new Date()),
+}, (table) => [
+  index('notice_reactions_notice_id_idx').on(table.noticeId),
+  index('notice_reactions_user_id_idx').on(table.userId),
 ])
 
 // ============================================

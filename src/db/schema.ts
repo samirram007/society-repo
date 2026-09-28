@@ -26,6 +26,9 @@ export * from './schemas/helpdesk'
 // Communications, Notices, Meetings, Documents
 export * from './schemas/communications'
 
+// Notice Document Management System (DMS)
+export * from './schemas/notice-documents'
+
 // Celebrations, Events, Parties, Pujas
 export * from './schemas/celebrations'
 

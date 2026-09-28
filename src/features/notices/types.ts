@@ -2,6 +2,10 @@ import { AlertTriangle, Clock, Info, type LucideIcon } from 'lucide-react'
 
 export type NoticeCategory = 'general' | 'holiday' | 'maintenance' | 'event' | 'security' | 'rule'
 export type NoticeTargetAudience = 'all' | 'owners' | 'tenants' | 'committee' | 'specific_tower'
+/** Re-exported from the notice DMS for convenience */
+export type { NoticeVisibility } from '@/features/notice-documents/types'
+export type { PendingDocument } from '@/features/notice-documents/types'
+import type { PendingDocument } from '@/features/notice-documents/types'
 
 export interface Notice {
   id: number
@@ -12,7 +16,10 @@ export interface Notice {
   category: NoticeCategory | null
   priority: string
   targetAudience: NoticeTargetAudience | null
+  /** JSON array of tower IDs when targetAudience = specific_tower */
   targetTowers: string | null
+  /** public notices can be shared via link; private ones stay in-portal */
+  visibility?: 'private' | 'public' | null
   isPinned: boolean
   isActive: boolean
   createdAt: string
@@ -74,4 +81,10 @@ export interface NoticeFormData {
   category: NoticeCategory
   priority: string
   targetAudience: NoticeTargetAudience
+  /** Tower IDs when targeting specific towers */
+  targetTowers: number[]
+  /** public notices can be shared externally via generated links */
+  visibility: 'private' | 'public'
+  /** Files picked via drag & drop, uploaded after the notice is saved */
+  attachments: PendingDocument[]
 }

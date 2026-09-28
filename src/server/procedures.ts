@@ -367,27 +367,184 @@ export const visitorProcedures = {
 // ============================================
 // NOTICE PROCEDURES
 // ============================================
-export const noticeProcedures = {
-  list: os.handler(async () => {
-    return db
-      .select({
-        id: schema.notices.id,
-        societyId: schema.notices.societyId,
-        title: schema.notices.title,
-        content: schema.notices.content,
-        postedBy: schema.notices.postedBy,
-        category: schema.notices.category,
-        priority: schema.notices.priority,
-        targetAudience: schema.notices.targetAudience,
-        targetTowers: schema.notices.targetTowers,
-        isPinned: schema.notices.isPinned,
-        isActive: schema.notices.isActive,
-        createdAt: schema.notices.createdAt,
-        commentCount: sql<number>`(SELECT COUNT(*) FROM ${schema.noticeComments} WHERE ${schema.noticeComments.noticeId} = notices.id)`.mapWith(Number),
+export const noticeProcedures = {  list: os.handler(async () => {    return db      .select({        id: schema.notices.id,        societyId: schema.notices.societyId,        title: schema.notices.title,        content: schema.notices.content,        postedBy: schema.notices.postedBy,        category: schema.notices.category,        priority: schema.notices.priority,        targetAudience: schema.notices.targetAudience,        targetTowers: schema.notices.targetTowers,        visibility: schema.notices.visibility,        isPinned: schema.notices.isPinned,        isActive: schema.notices.isActive,        createdAt: schema.notices.createdAt,        commentCount: sql<number>`(SELECT COUNT(*) FROM ${schema.noticeComments} WHERE ${schema.noticeComments.noticeId} = notices.id)`.mapWith(Number),      })      .from(schema.notices)      .orderBy(desc(schema.notices.id))  }),
+
+  /**
+   * Public preview: any user (even not logged in) can view a single notice.
+   * Only ACTIVE notices are returned. Powers the noticeboard detail dialog
+   * so everyone (members and anonymous visitors) can read posted notices.
+   */
+  getById: os
+    .input(z.object({ id: z.number() }))
+    .handler(async ({ input }) => {
+      const [notice] = await db
+        .select({
+          id: schema.notices.id,
+          societyId: schema.notices.societyId,
+          title: schema.notices.title,
+          content: schema.notices.content,
+          postedBy: schema.notices.postedBy,
+          category: schema.notices.category,
+          priority: schema.notices.priority,
+          targetAudience: schema.notices.targetAudience,
+          targetTowers: schema.notices.targetTowers,
+          visibility: schema.notices.visibility,
+          isPinned: schema.notices.isPinned,
+          isActive: schema.notices.isActive,
+          createdAt: schema.notices.createdAt,
+          postedByName: sql<string>`CONCAT(${schema.users.firstName}, ' ', ${schema.users.lastName})`,
+          commentCount: sql<number>`(SELECT COUNT(*) FROM ${schema.noticeComments} WHERE ${schema.noticeComments.noticeId} = notices.id)`.mapWith(Number),
+        })
+        .from(schema.notices)
+        .leftJoin(schema.users, eq(schema.notices.postedBy, schema.users.id))
+        .where(and(eq(schema.notices.id, input.id), eq(schema.notices.isActive, true)))
+        .limit(1)
+      return notice ?? null
+    }),
+
+  /** List towers for targeting (used by the notice form's tower picker) */
+  listTowers: os
+    .input(z.object({ societyId: z.number().optional() }).optional())
+    .handler(async ({ input }) => {
+      const [society] = await db
+        .select({ id: schema.societies.id })
+        .from(schema.societies)
+        .limit(1)
+      const societyId = input?.societyId ?? society?.id
+      if (!societyId) return []
+      return db
+        .select({ id: schema.towers.id, name: schema.towers.name, totalFloors: schema.towers.totalFloors, flatsPerFloor: schema.towers.flatsPerFloor })
+        .from(schema.towers)
+        .where(and(eq(schema.towers.societyId, societyId), eq(schema.towers.isActive, true)))
+        .orderBy(schema.towers.name)
+    }),
+
+  /** Record a view ("seen by"). Upserts per user; bumps viewCount. */
+  markSeen: os
+    .input(z.object({ noticeId: z.number(), userId: z.number() }))
+    .handler(async ({ input }) => {
+      const [existing] = await db
+        .select()
+        .from(schema.noticeViews)
+        .where(
+          and(
+            eq(schema.noticeViews.noticeId, input.noticeId),
+            eq(schema.noticeViews.userId, input.userId)
+          )
+        )
+        .limit(1)
+      if (existing) {
+        await db
+          .update(schema.noticeViews)
+          .set({ viewCount: (existing.viewCount || 0) + 1, lastViewedAt: new Date() })
+          .where(eq(schema.noticeViews.id, existing.id))
+        return { firstView: false }
+      }
+      await db.insert(schema.noticeViews).values({
+        noticeId: input.noticeId,
+        userId: input.userId,
+        viewCount: 1,
       })
-      .from(schema.notices)
-      .orderBy(desc(schema.notices.id))
-  }),
+      return { firstView: true }
+    }),
+
+  /** Who has seen a notice (newest first) */
+  listSeenBy: os
+    .input(z.object({ noticeId: z.number() }))
+    .handler(async ({ input }) => {
+      return db
+        .select({
+          userId: schema.noticeViews.userId,
+          userName: sql<string>`CONCAT(${schema.users.firstName}, ' ', ${schema.users.lastName})`,
+          userRole: schema.users.role,
+          viewCount: schema.noticeViews.viewCount,
+          firstViewedAt: schema.noticeViews.firstViewedAt,
+          lastViewedAt: schema.noticeViews.lastViewedAt,
+        })
+        .from(schema.noticeViews)
+        .leftJoin(schema.users, eq(schema.noticeViews.userId, schema.users.id))
+        .where(eq(schema.noticeViews.noticeId, input.noticeId))
+        .orderBy(desc(schema.noticeViews.lastViewedAt))
+    }),
+
+  /** Seen counts for all notices in one call (avoids N+1 per card) */
+  seenCounts: os
+    .input(z.object({}).optional())
+    .handler(async () => {
+      const rows = await db
+        .select({
+          noticeId: schema.noticeViews.noticeId,
+          count: sql<number>`COUNT(*)`.mapWith(Number),
+        })
+        .from(schema.noticeViews)
+        .groupBy(schema.noticeViews.noticeId)
+      return rows
+    }),
+
+  /** Reaction summary for a notice + which reaction the current user has */
+  listReactions: os
+    .input(z.object({ noticeId: z.number(), userId: z.number().optional() }))
+    .handler(async ({ input }) => {
+      const rows = await db
+        .select({
+          reactionType: schema.noticeReactions.reactionType,
+          userId: schema.noticeReactions.userId,
+          userName: sql<string>`CONCAT(${schema.users.firstName}, ' ', ${schema.users.lastName})`,
+        })
+        .from(schema.noticeReactions)
+        .leftJoin(schema.users, eq(schema.noticeReactions.userId, schema.users.id))
+        .where(eq(schema.noticeReactions.noticeId, input.noticeId))
+
+      const counts: Record<string, number> = {}
+      const namesByType: Record<string, string[]> = {}
+      let myReaction: string | null = null
+      for (const r of rows) {
+        counts[r.reactionType] = (counts[r.reactionType] || 0) + 1
+        if (!namesByType[r.reactionType]) namesByType[r.reactionType] = []
+        if (r.userName) namesByType[r.reactionType].push(r.userName)
+        if (input.userId && r.userId === input.userId) myReaction = r.reactionType
+      }
+      return { counts, namesByType, myReaction }
+    }),
+
+  /** Toggle (or switch) the current user's reaction on a notice */
+  react: os
+    .input(z.object({
+      noticeId: z.number(),
+      userId: z.number(),
+      reactionType: z.enum(['like', 'love', 'celebrate', 'insightful', 'thanks']),
+    }))
+    .handler(async ({ input }) => {
+      const [existing] = await db
+        .select()
+        .from(schema.noticeReactions)
+        .where(
+          and(
+            eq(schema.noticeReactions.noticeId, input.noticeId),
+            eq(schema.noticeReactions.userId, input.userId)
+          )
+        )
+        .limit(1)
+      // Same reaction again -> remove it (toggle off)
+      if (existing && existing.reactionType === input.reactionType) {
+        await db.delete(schema.noticeReactions).where(eq(schema.noticeReactions.id, existing.id))
+        return { removed: true }
+      }
+      // Different reaction -> switch it
+      if (existing) {
+        await db
+          .update(schema.noticeReactions)
+          .set({ reactionType: input.reactionType, createdAt: new Date() })
+          .where(eq(schema.noticeReactions.id, existing.id))
+        return { removed: false, reactionType: input.reactionType }
+      }
+      await db.insert(schema.noticeReactions).values({
+        noticeId: input.noticeId,
+        userId: input.userId,
+        reactionType: input.reactionType,
+      })
+      return { removed: false, reactionType: input.reactionType }
+    }),
 
   create: os
     .input(z.object({
@@ -398,9 +555,18 @@ export const noticeProcedures = {
       category: z.enum(['general', 'holiday', 'maintenance', 'event', 'security', 'rule']).default('general'),
       priority: z.enum(['low', 'medium', 'high']).default('medium'),
       targetAudience: z.enum(['all', 'owners', 'tenants', 'committee', 'specific_tower']).default('all'),
+      visibility: z.enum(['private', 'public']).default('private'),
+      /** Tower targeting: JSON array of tower IDs (used when targetAudience = specific_tower) */
+      targetTowers: z.array(z.number()).optional(),
     }))
     .handler(async ({ input }) => {
-      const [result] = await db.insert(schema.notices).values({ ...input, isPinned: false, isActive: true })
+      const { targetTowers, ...rest } = input
+      const [result] = await db.insert(schema.notices).values({
+        ...rest,
+        targetTowers: targetTowers && targetTowers.length > 0 ? JSON.stringify(targetTowers) : null,
+        isPinned: false,
+        isActive: true,
+      })
       return { id: Number(result.insertId), ...input }
     }),
 
@@ -3690,6 +3856,14 @@ import {
   inAppNotificationProcedures,
 } from './help-center-procedures'
 
+// Notice Document Management System (DMS) procedures
+import {
+  noticeDocumentFolderProcedures,
+  noticeDocumentProcedures,
+  noticeShareProcedures,
+  noticeVisibilityProcedures,
+} from './notice-document-procedures'
+
 export const router = {
   auth: authProcedures,
   members: memberProcedures,
@@ -3748,6 +3922,10 @@ export const router = {
   helpTickets: helpTicketProcedures,
   contactMessages: contactMessageProcedures,
   inAppNotifications: inAppNotificationProcedures,
+  noticeDocuments: noticeDocumentProcedures,
+  noticeDocumentFolders: noticeDocumentFolderProcedures,
+  noticeShares: noticeShareProcedures,
+  noticeVisibility: noticeVisibilityProcedures,
 }
 
 export type AppRouter = typeof router;
