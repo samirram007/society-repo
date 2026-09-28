@@ -5,6 +5,6 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'mysql',
   dbCredentials: {
-    url: 'mysql://root:Samir@007@localhost:3307/society_erp',
+    url: 'mysql://root:priyanshuadmin@localhost:3306/society_erp',
   },
 })

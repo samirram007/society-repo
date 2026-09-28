@@ -4,9 +4,9 @@ import * as schema from './schema'
 
 const connection = mysql.createPool({
   host: 'localhost',
-  port: 3307,
+  port: 3306,
   user: 'root',
-  password: 'Samir@007',
+  password: 'priyanshuadmin',
   database: 'society_erp',
   waitForConnections: true,
   connectionLimit: 10,

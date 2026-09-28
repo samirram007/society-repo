@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 
 async function seed() {
   const conn = await mysql.createConnection({
-    host: 'localhost', port: 3307, user: 'root', password: 'sneha', database: 'society_erp'
+    host: 'localhost', port: 3306, user: 'root', password: 'priyanshuadmin', database: 'society_erp'
   })
 
   console.log('🌱 Seeding database...\n')
