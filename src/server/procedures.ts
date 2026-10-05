@@ -1,4 +1,5 @@
 import { os } from '@orpc/server'
+import { ORPCError } from '@orpc/client'
 import { z } from 'zod'
 import { db } from '@/db'
 import { and, eq, desc, sql } from 'drizzle-orm'
@@ -2797,15 +2798,85 @@ export const documentFolderProcedures = {
   delete: os
     .input(z.object({ id: z.number() }))
     .handler(async ({ input }) => {
-      // Move all docs in this folder to root (folderId = null)
-      await db.update(schema.documents).set({ folderId: null }).where(eq(schema.documents.folderId, input.id))
-      // Delete subfolders
-      const subfolders = await db.select().from(schema.documentFolders).where(eq(schema.documentFolders.parentId, input.id))
-      for (const sub of subfolders) {
-        await db.update(schema.documents).set({ folderId: null }).where(eq(schema.documents.folderId, sub.id))
-        await db.delete(schema.documentFolders).where(eq(schema.documentFolders.id, sub.id))
+      // Collect the whole subtree (any nesting depth)
+      const allFolders = await db.select().from(schema.documentFolders)
+      const subtree = new Set<number>([input.id])
+      let added = true
+      while (added) {
+        added = false
+        for (const f of allFolders) {
+          if (f.parentId && subtree.has(f.parentId) && !subtree.has(f.id)) {
+            subtree.add(f.id)
+            added = true
+          }
+        }
       }
-      await db.delete(schema.documentFolders).where(eq(schema.documentFolders.id, input.id))
+      // Move every document in the subtree to root (folderId = null)
+      for (const folderId of subtree) {
+        await db.update(schema.documents).set({ folderId: null }).where(eq(schema.documents.folderId, folderId))
+      }
+      // Delete all folders in the subtree
+      for (const folderId of subtree) {
+        await db.delete(schema.documentFolders).where(eq(schema.documentFolders.id, folderId))
+      }
+      return { success: true }
+    }),
+
+  /**
+   * Merge the source folder into the target folder:
+   * - Source's documents move into the target
+   * - Source's subfolders merge recursively — same-named subfolders are
+   *   combined, differently-named ones are re-parented under the target
+   * - The source folder is deleted
+   */
+  merge: os
+    .input(z.object({ sourceId: z.number(), targetId: z.number() }))
+    .handler(async ({ input }) => {
+      if (input.sourceId === input.targetId) {
+        throw new ORPCError('BAD_REQUEST', { message: 'Cannot merge a folder into itself' })
+      }
+      const [source] = await db.select().from(schema.documentFolders).where(eq(schema.documentFolders.id, input.sourceId)).limit(1)
+      const [target] = await db.select().from(schema.documentFolders).where(eq(schema.documentFolders.id, input.targetId)).limit(1)
+      if (!source || !target) throw new ORPCError('NOT_FOUND', { message: 'Folder not found' })
+      // Source must not be an ancestor of target (would create a cycle)
+      let ancestor: typeof target | undefined = target
+      const seen = new Set<number>()
+      while (ancestor?.parentId) {
+        if (seen.has(ancestor.parentId)) break
+        seen.add(ancestor.parentId)
+        if (ancestor.parentId === input.sourceId) {
+          throw new ORPCError('BAD_REQUEST', { message: 'Cannot merge a folder into its own subfolder' })
+        }
+        const [parent] = await db.select().from(schema.documentFolders).where(eq(schema.documentFolders.id, ancestor.parentId)).limit(1)
+        ancestor = parent
+      }
+
+      const allFolders = await db.select().from(schema.documentFolders)
+      const childrenOf = (id: number) => allFolders.filter(f => f.parentId === id)
+
+      const mergeInto = async (sourceFolderId: number, targetFolderId: number) => {
+        // 1. Move documents
+        await db.update(schema.documents)
+          .set({ folderId: targetFolderId, updatedAt: new Date() })
+          .where(eq(schema.documents.folderId, sourceFolderId))
+        // 2. Handle subfolders: same-named ones merge recursively, others re-parent
+        for (const child of childrenOf(sourceFolderId)) {
+          const twin = childrenOf(targetFolderId).find(
+            f => f.name.trim().toLowerCase() === child.name.trim().toLowerCase()
+          )
+          if (twin) {
+            await mergeInto(child.id, twin.id)
+          } else {
+            await db.update(schema.documentFolders)
+              .set({ parentId: targetFolderId, updatedAt: new Date() })
+              .where(eq(schema.documentFolders.id, child.id))
+          }
+        }
+        // 3. Remove the (now empty) source folder
+        await db.delete(schema.documentFolders).where(eq(schema.documentFolders.id, sourceFolderId))
+      }
+
+      await mergeInto(input.sourceId, input.targetId)
       return { success: true }
     }),
 }
@@ -3123,8 +3194,11 @@ export const documentProcedures = {
       const { folderId, category, search, starred, sortBy = 'createdAt', sortOrder = 'desc', page = 1, limit = 100 } = input || {}
       let results = await db.select().from(schema.documents).where(eq(schema.documents.isActive, true))
 
-      // Filter by folder
-      if (folderId === null || folderId === undefined) {
+      // Filter by folder:
+      //   null      → only root-level docs
+      //   undefined → ALL docs (callers use this for counts/pickers)
+      //   number    → docs in that folder
+      if (folderId === null) {
         results = results.filter(d => d.folderId === null || d.folderId === undefined)
       } else if (folderId !== undefined) {
         results = results.filter(d => d.folderId === folderId)

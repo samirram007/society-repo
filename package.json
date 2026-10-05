@@ -41,6 +41,7 @@
     "class-variance-authority": "^0.7.1",
     "cloudinary": "^2.10.1",
     "clsx": "^2.1.1",
+    "docx-preview": "0.4.1",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.9",
     "lucide-react": "^1.33.0",
@@ -50,6 +51,7 @@
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0",
     "uuid": "^14.0.2",
+    "xlsx": "0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

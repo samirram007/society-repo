@@ -39,9 +39,11 @@ import {
   ExternalLink,
   Info,
   Pencil,
+  GitMerge,
 } from 'lucide-react'
 import { useContextMenu } from '@/components/layout/doc-context-menu'
 import { DocPropertiesDialog } from '@/components/layout/doc-properties-dialog'
+import { DocPreview } from '@/components/doc-preview'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -197,6 +199,17 @@ export function DocumentsPage() {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<DocFile | null>(null)
   const [selectedFolder, setSelectedFolder] = useState<DocFolder | null>(null)
+
+  // Merge folder state
+  const [mergeDialogOpen, setMergeDialogOpen] = useState(false)
+  const [mergeSource, setMergeSource] = useState<DocFolder | null>(null)
+  const [mergeTargetId, setMergeTargetId] = useState('')
+
+  const openCreateFolderDialog = () => {
+    setFolderForm({ name: '', description: '', color: '#3b82f6', parentId: '' })
+    setFormError(null)
+    setCreateFolderOpen(true)
+  }
 
   // Form state
   const [folderForm, setFolderForm] = useState({ name: '', description: '', color: '#3b82f6', parentId: '' })
@@ -665,6 +678,7 @@ export function DocumentsPage() {
       { label: 'Open', icon: FolderOpen, onClick: () => setCurrentFolderId(folder.id) },
       { label: 'Edit', icon: Pencil, onClick: () => { setSelectedFolder(folder); setEditFolderOpen(true); setFolderForm({ name: folder.name, description: folder.description || '', color: folder.color || '#3b82f6', parentId: folder.parentId?.toString() || '' }) } },
       { label: 'Rename', icon: Pencil, onClick: () => { setRenameTarget({ type: 'folder', id: folder.id, name: folder.name }); setRenameValue(folder.name); setRenameDialogOpen(true) } },
+      { label: 'Merge into…', icon: GitMerge, onClick: () => openMergeDialog(folder) },
       { label: 'Properties', icon: Info, onClick: () => { setPropertiesTarget({ ...folder, type: 'folder', docCount, folderSize, children: childCount } as any); setPropertiesType('folder'); setPropertiesOpen(true) }, dividerAfter: true },
       { label: 'Delete', icon: Trash2, onClick: () => { setSelectedFolder(folder); setDeleteDialogOpen(true) }, variant: 'destructive' },
     ])
@@ -681,6 +695,50 @@ export function DocumentsPage() {
       current = current.parentId ? folders.find(f => f.id === current!.parentId) || undefined : undefined
     }
     return false
+  }
+
+  // Flatten folder tree into indented options for pickers (excludes a subtree when excludeId is given)
+  const buildFolderOptions = (excludeId?: number | null): { id: number; name: string; depth: number }[] => {
+    const options: { id: number; name: string; depth: number }[] = []
+    const visited = new Set<number>()
+    const walk = (parentId: number | null, depth: number, blocked: boolean) => {
+      for (const f of folders) {
+        if ((f.parentId ?? null) !== parentId || visited.has(f.id)) continue
+        visited.add(f.id)
+        const isBlocked = blocked || f.id === excludeId
+        if (!isBlocked) options.push({ id: f.id, name: f.name, depth })
+        walk(f.id, isBlocked ? depth : depth + 1, isBlocked)
+      }
+    }
+    walk(null, 0, false)
+    // Orphans (parent no longer exists) should still be selectable
+    for (const f of folders) {
+      if (!visited.has(f.id)) options.push({ id: f.id, name: f.name, depth: 0 })
+    }
+    return options
+  }
+
+  // Merge folder handlers
+  const openMergeDialog = (folder: DocFolder) => {
+    setMergeSource(folder)
+    setMergeTargetId('')
+    setMergeDialogOpen(true)
+  }
+  const handleMergeFolder = async () => {
+    if (!mergeSource || !mergeTargetId) return
+    setSubmitting(true)
+    try {
+      await orpc.documentFolders.merge({ sourceId: mergeSource.id, targetId: Number(mergeTargetId) })
+      setMergeDialogOpen(false)
+      setMergeSource(null)
+      if (currentFolderId === mergeSource.id) setCurrentFolderId(null)
+      fetchAll()
+    } catch (error) {
+      console.error('Merge failed:', error)
+      alert(error instanceof Error ? error.message : 'Merge failed')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   // Drag start (files and folders)
@@ -899,7 +957,7 @@ export function DocumentsPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setCreateFolderOpen(true)}>
+          <Button variant="outline" size="sm" onClick={openCreateFolderDialog}>
             <FolderPlus className="mr-2 h-4 w-4" />
             New Folder
           </Button>
@@ -1031,7 +1089,7 @@ export function DocumentsPage() {
             <div>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-medium text-muted-foreground">Folders ({currentFolders.length})</h3>
-                <Button variant="ghost" size="sm" className="h-7" onClick={() => setCreateFolderOpen(true)}>
+                <Button variant="ghost" size="sm" className="h-7" onClick={openCreateFolderDialog}>
                   <Plus className="mr-1 h-3 w-3" /> Add Folder
                 </Button>
               </div>
@@ -1216,7 +1274,7 @@ export function DocumentsPage() {
                 <h3 className="text-lg font-semibold mb-1">No documents yet</h3>
                 <p className="text-muted-foreground mb-4">Upload files, add links, or create folders to get started</p>
                 <div className="flex justify-center gap-2">
-                  <Button variant="outline" onClick={() => setCreateFolderOpen(true)}><FolderPlus className="mr-2 h-4 w-4" /> New Folder</Button>
+                  <Button variant="outline" onClick={openCreateFolderDialog}><FolderPlus className="mr-2 h-4 w-4" /> New Folder</Button>
                   <Button variant="outline" onClick={() => setLinkDialogOpen(true)}><Link2 className="mr-2 h-4 w-4" /> Add Link</Button>
                   <Button onClick={() => setUploadDialogOpen(true)}><Upload className="mr-2 h-4 w-4" /> Upload Files</Button>
                 </div>
@@ -1484,6 +1542,23 @@ export function DocumentsPage() {
               <Input placeholder="e.g. Financial Reports 2024" value={folderForm.name} onChange={(e) => setFolderForm({ ...folderForm, name: e.target.value })} />
             </div>
             <div className="space-y-2">
+              <Label>Location</Label>
+              <Select value={folderForm.parentId} onValueChange={(v) => setFolderForm({ ...folderForm, parentId: v })}>
+                <SelectTrigger><SelectValue placeholder="Current location" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">
+                    📂 {currentFolderId ? (folders.find(f => f.id === currentFolderId)?.name || 'Current folder') : 'Root (All Documents)'}
+                  </SelectItem>
+                  {buildFolderOptions().map(f => (
+                    <SelectItem key={f.id} value={f.id.toString()}>
+                      {'\u00A0'.repeat(f.depth * 4)}{f.depth > 0 ? '↳ ' : '📁 '}{f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Create this folder inside another folder to nest it.</p>
+            </div>
+            <div className="space-y-2">
               <Label>Description</Label>
               <Textarea placeholder="Optional description" value={folderForm.description} onChange={(e) => setFolderForm({ ...folderForm, description: e.target.value })} rows={2} />
             </div>
@@ -1646,6 +1721,53 @@ export function DocumentsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ============================================
+          MERGE FOLDER DIALOG
+          ============================================ */}
+      <Dialog open={mergeDialogOpen} onOpenChange={(open) => { if (!open) { setMergeDialogOpen(false); setMergeSource(null) } }}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <GitMerge className="h-4 w-4" />
+              Merge Folder
+            </DialogTitle>
+            <DialogDescription>
+              Move everything from <strong>{mergeSource?.name}</strong> into another folder, then delete it.
+              Subfolders with the same name are combined automatically.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg bg-muted/50 p-3 text-sm">
+              <p className="font-medium">“{mergeSource?.name}” contains:</p>
+              <p className="text-muted-foreground text-xs mt-1">
+                {mergeSource ? `${getRecursiveDocCount(mergeSource.id)} file(s) · ${folders.filter(f => f.parentId === mergeSource.id).length} direct subfolder(s)` : ''}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Merge into *</Label>
+              <Select value={mergeTargetId} onValueChange={setMergeTargetId}>
+                <SelectTrigger><SelectValue placeholder="Choose destination folder" /></SelectTrigger>
+                <SelectContent>
+                  {mergeSource && buildFolderOptions(mergeSource.id).map(f => (
+                    <SelectItem key={f.id} value={f.id.toString()}>
+                      {'\u00A0'.repeat(f.depth * 4)}{f.depth > 0 ? '↳ ' : '📁 '}{f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setMergeDialogOpen(false); setMergeSource(null) }}>Cancel</Button>
+            <Button onClick={handleMergeFolder} disabled={submitting || !mergeTargetId}>
+              {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <GitMerge className="mr-2 h-4 w-4" />
+              Merge
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Context Menu */}
       {MenuComponent}
 
@@ -1712,19 +1834,17 @@ export function DocumentsPage() {
                       <ExternalLink className="mr-2 h-4 w-4" /> Open in Google
                     </Button>
                   </div>
-                ) : selectedDoc.mimeType?.startsWith('image/') && selectedDoc.fileData ? (
-                  <div className="rounded-lg border overflow-hidden bg-muted/50">
-                    <img src={selectedDoc.fileData} alt={selectedDoc.title} className="w-full" />
-                  </div>
-                ) : selectedDoc.fileData?.startsWith('data:text') ? (
-                  <div className="rounded-lg border bg-muted/50 p-4">
-                    <pre className="text-sm whitespace-pre-wrap overflow-x-auto max-h-96">{atob(selectedDoc.fileData.split(',')[1])}</pre>
-                  </div>
                 ) : (
-                  <div className="rounded-lg border bg-muted/50 p-8 text-center">
-                    {(() => { const I = getFileIcon(selectedDoc.mimeType, selectedDoc.fileName); return <I className="mx-auto h-16 w-16 text-muted-foreground/50 mb-3" /> })()}
-                    <p className="text-sm text-muted-foreground">Preview not available for this file type</p>
-                  </div>
+                  <DocPreview
+                    src={
+                      (selectedDoc.fileData && selectedDoc.fileData.startsWith('data:'))
+                        ? selectedDoc.fileData
+                        : (selectedDoc.fileUrl?.startsWith('http') ? selectedDoc.fileUrl : undefined)
+                    }
+                    mimeType={selectedDoc.mimeType}
+                    fileName={selectedDoc.fileName || selectedDoc.title}
+                    className="h-[60vh]"
+                  />
                 )}
 
                 {/* Details */}

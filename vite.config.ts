@@ -21,8 +21,11 @@ function rpcMiddleware() {
   return {
     name: 'rpc-middleware',
     configureServer(server: any) {
-      // Register as position 0 middleware to run before TanStack Start
-      server.middlewares.use(0, async (req: any, res: any, next: any) => {
+      // Register early so it runs before TanStack Start.
+      // NOTE: use(handler) — Vite's bundled Connect expects (route: string, fn) OR (fn).
+      // Passing a number as the first arg (e.g. use(0, fn)) silently discards fn,
+      // which broke all RPC POST bodies (folder creation, updates, login input, etc.).
+      server.middlewares.use(async (req: any, res: any, next: any) => {
         if (!req.url?.startsWith('/api/rpc/')) return next()
         if (req.method !== 'POST' && req.method !== 'GET') return next()
 

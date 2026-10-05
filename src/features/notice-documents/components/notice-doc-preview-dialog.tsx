@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Download, ExternalLink, FileText, Loader2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DocPreview } from '@/components/doc-preview'
 import {
   Dialog,
   DialogContent,
@@ -19,20 +20,6 @@ interface NoticeDocPreviewDialogProps {
   onOpenChange: (open: boolean) => void
   /** Optionally pass pre-fetched content (data URL) to avoid refetch */
   content?: string | null
-}
-
-/** Decode a data URL (base64 or URL-encoded) into plain text for preview */
-function decodeDataUrlText(dataUrl: string): string {
-  const [, payload] = dataUrl.split(',')
-  if (payload === undefined) return dataUrl
-  if (dataUrl.includes(';base64')) {
-    try {
-      return atob(payload)
-    } catch {
-      return 'Preview unavailable: could not decode file content'
-    }
-  }
-  return decodeURIComponent(payload)
 }
 
 /** Convert a base64 data URL into an object URL the browser can render natively */
@@ -111,10 +98,6 @@ export function NoticeDocPreviewDialog({ doc, open, onOpenChange, content }: Not
 
   if (!doc) return null
 
-  const kind = describeFileType(doc.mimeType, doc.fileName)
-  const isImage = kind === 'Image'
-  const isPdf = kind === 'PDF'
-  const isText = kind === 'Text'
   const isRemote = !!dataUrl && dataUrl.startsWith('http')
 
   const handleDownload = () => {
@@ -152,19 +135,12 @@ export function NoticeDocPreviewDialog({ doc, open, onOpenChange, content }: Not
             </div>
           ) : error ? (
             <p className="py-16 text-center text-sm text-muted-foreground">{error}</p>
-          ) : isImage && dataUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={dataUrl} alt={doc.title} className="mx-auto max-h-[65vh] object-contain" />
-          ) : isPdf && dataUrl ? (
-            <iframe src={dataUrl} title={doc.title} className="h-[65vh] w-full rounded-b-md" />
-          ) : isText && dataUrl ? (
-            <pre className="whitespace-pre-wrap p-4 text-sm">{decodeDataUrlText(dataUrl)}</pre>
           ) : (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-muted-foreground">
-              <FileText className="h-10 w-10" />
-              <p className="text-sm">No inline preview available</p>
-              <p className="text-xs">Use the buttons below to open or download this file.</p>
-            </div>
+            <DocPreview
+              src={dataUrl}
+              mimeType={doc.mimeType}
+              fileName={doc.fileName || doc.title}
+            />
           )}
         </div>
 
